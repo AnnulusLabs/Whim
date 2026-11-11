@@ -1,6 +1,6 @@
 {
-  "name": "EngineeringPaper.xyz",
-  "short_name": "EPxyz.com",
+  "name": "Whim",
+  "short_name": "Whim",
   "categories": ["engineering", "productivity", "education"],
   "icons": [
     {
@@ -78,7 +78,7 @@
   "file_handlers": [
     {
       "action": "/open_file",
-      "name": "EngineeringPaper.xyz",
+      "name": "Whim",
       "accept": {
         "application/json": [ ".epxyz" ]
       },

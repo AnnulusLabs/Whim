@@ -1,3 +1,23 @@
+# Whim
+
+A notebook for inventors and independent researchers. Unit-checked engineering math, material and environment data, and sealed, re-runnable records. It runs on your own device, with no account.
+
+Whim is a fork of [EngineeringPaper.xyz](https://github.com/mgreminger/EngineeringPaper.xyz) by Engineering Paper LLC, used under the MIT license. The calculation engine, unit system, fluid properties, data tables and plotting are their work. See `LICENSE`.
+
+## What Whim adds (in progress)
+
+- Environment presets: Earth sea level, Taos, Mars, Moon
+- Material, fastener and chemistry cards, each value carrying its source
+- Templates that fill themselves from a project: design, test, prototype, produce
+- Sealed records: a fingerprint over inputs, data rows, formulas and results
+- Supplier search links for the United States, Canada and Mexico
+
+Status: this branch renames the app. Nothing above is merged yet.
+
+---
+
+The upstream README follows.
+
 # [![EngineeringPaper.xyz](https://user-images.githubusercontent.com/6439649/212795699-7cc908e1-00a4-44ed-a034-695f056ee84a.png)](https://engineeringpaper.xyz)
 
 
