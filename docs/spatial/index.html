@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Whim Spatial Bench</title>
+<style>
+/* Layout idea: the 3D bench fills the screen; one slim tool rail floats over it. */
+:root{ --ink:#e9eef2; --mute:#9fb0bd; --panel:rgba(18,24,30,.86); --line:#34424e; --blue:#6ea8ff; --warn:#ffb454; --bg:#0f1418;
+  --body:system-ui,-apple-system,"Segoe UI",sans-serif; --mono:ui-monospace,Menlo,Consolas,monospace; color-scheme:dark }
+*{box-sizing:border-box} html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.4 var(--body);overflow:hidden}
+canvas{display:block;touch-action:none}
+#rail{position:fixed;left:12px;top:12px;right:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;pointer-events:none}
+#rail>*{pointer-events:auto}
+button,select,input{font:inherit;color:inherit}
+.b{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 13px;cursor:pointer}
+.b.go{border-color:var(--blue);color:var(--blue);font-weight:600}
+.b[aria-pressed="true"]{border-color:var(--blue)}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+#sum{margin-left:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 13px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+#panel{position:fixed;left:12px;bottom:12px;right:12px;max-width:560px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+#panel[hidden]{display:none}
+#panel label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute)}
+#panel input,#panel select{background:#0c1115;border:1px solid var(--line);border-radius:6px;padding:7px;min-width:0;font-family:var(--mono)}
+#panel .wide{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
+#msg{position:fixed;left:50%;top:64px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:14px;max-width:min(92vw,560px);text-align:center}
+#msg:empty{display:none}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head>
+<body>
+<div id="rail">
+  <button class="b go" id="xr">Enter headset</button>
+  <button class="b" data-add="box">+ Box</button>
+  <button class="b" data-add="cyl">+ Cylinder</button>
+  <button class="b" data-add="sph">+ Sphere</button>
+  <button class="b" id="snap" aria-pressed="true">Snap on</button>
+  <button class="b" id="copy">Copy parts list</button>
+  <span id="sum">0 parts</span>
+</div>
+<div id="msg" role="status">Loading the bench…</div>
+<form id="panel" hidden>
+  <label>Width mm<input id="sx" type="number" min="1" step="1"></label>
+  <label>Height mm<input id="sy" type="number" min="1" step="1"></label>
+  <label>Depth mm<input id="sz" type="number" min="1" step="1"></label>
+  <label>Lift mm<input id="py" type="number" min="0" step="5"></label>
+  <label style="grid-column:1/3">Material<select id="mat"></select></label>
+  <label>Turn °<input id="ry" type="number" step="15"></label>
+  <label>Mass<input id="mass" readonly></label>
+  <div class="wide"><button class="b" type="button" id="dup">Duplicate</button><button class="b" type="button" id="del">Delete</button><button class="b" type="button" id="done">Done</button></div>
+</form>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const $ = (id) => document.getElementById(id);
+const say = (t, ms = 0) => { $("msg").textContent = t; clearTimeout(say.t); if (ms) say.t = setTimeout(() => ($("msg").textContent = ""), ms); };
+
+// Densities in kg/m3: typical handbook values. Check your own stock before trusting a mass.
+const MATERIALS = [["Aluminum 6061", 2700, 0xb9c4cc], ["Steel", 7850, 0x7f8a94], ["PLA print", 1240, 0x6ea8ff], ["PETG print", 1270, 0x59c2a8],
+  ["ASA print", 1070, 0xffb454], ["Douglas-fir", 480, 0xc99a5b], ["Polyimide film", 1420, 0xd98a2b]];
+const BENCH_Y = 0.75, BENCH = { w: 1.2, d: 0.7, z: -0.6 };
+const DEFAULTS = { box: [0.1, 0.05, 0.05], cyl: [0.05, 0.1, 0.05], sph: [0.06, 0.06, 0.06] };
+const GEO = { box: new THREE.BoxGeometry(1, 1, 1), cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 40), sph: new THREE.SphereGeometry(0.5, 32, 20) };
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const BG = new THREE.Color(0x0f1418);
+scene.background = BG;
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 30);
+camera.position.set(0.55, 1.35, 0.35);
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.target.set(0, BENCH_Y + 0.05, BENCH.z); orbit.enableDamping = true; orbit.update();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(1, 3, 2); scene.add(sun);
+
+// Bench: a 1.2 x 0.7 m top with a 100 mm grid, parts shelf on the left, bin on the right.
+const bench = new THREE.Group(); bench.position.set(0, BENCH_Y, BENCH.z); scene.add(bench);
+const top = new THREE.Mesh(new THREE.BoxGeometry(BENCH.w, 0.02, BENCH.d), new THREE.MeshStandardMaterial({ color: 0x1b242c, transparent: true, opacity: 0.82 }));
+top.position.y = -0.011; bench.add(top);
+const gp = [];                                   // 100 mm grid, heavier line every 500 mm
+for (let i = 0; i <= 12; i++) { const x = -BENCH.w / 2 + i * 0.1; gp.push(x, 0, -BENCH.d / 2, x, 0, BENCH.d / 2); }
+for (let j = 0; j <= 7; j++) { const z = -BENCH.d / 2 + j * 0.1; gp.push(-BENCH.w / 2, 0, z, BENCH.w / 2, 0, z); }
+const grid = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(gp, 3)), new THREE.LineBasicMaterial({ color: 0x4a6a8a }));
+bench.add(grid);
+const floor = new THREE.GridHelper(6, 12, 0x2a3540, 0x1c252d); scene.add(floor);
+const bin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshBasicMaterial({ color: 0xff6b6b, wireframe: true }));
+bin.position.set(BENCH.w / 2 + 0.14, 0.08, 0); bench.add(bin);
+const palette = [];
+["box", "cyl", "sph"].forEach((type, i) => {
+  const m = new THREE.Mesh(GEO[type], new THREE.MeshStandardMaterial({ color: 0x6ea8ff, emissive: 0x16304f }));
+  m.scale.set(0.07, 0.07, 0.07); m.position.set(-BENCH.w / 2 - 0.12, 0.05, -0.18 + i * 0.18); m.userData.palette = type; bench.add(m); palette.push(m);
+});
+
+function label() {
+  const c = document.createElement("canvas"); c.width = 512; c.height = 96;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  s.scale.set(0.2, 0.0375, 1); s.renderOrder = 10; s.userData.canvas = c; scene.add(s); return s;
+}
+function write(s, text) {
+  if (s.userData.text === text) return; s.userData.text = text;
+  const c = s.userData.canvas, g = c.getContext("2d"); g.clearRect(0, 0, c.width, c.height);
+  g.fillStyle = "rgba(12,17,21,.85)"; g.beginPath(); g.roundRect(4, 14, c.width - 8, 68, 14); g.fill();
+  g.fillStyle = "#e9eef2"; g.font = "600 34px ui-monospace,Menlo,monospace"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, c.width / 2, 49, c.width - 28);
+  s.material.map.needsUpdate = true;
+}
+
+const parts = [];
+let selected = null, snapOn = true;
+const mm = (m) => Math.round(m * 1000);
+function volume(p) { const [x, y, z] = p.userData.size; return p.userData.type === "box" ? x * y * z : p.userData.type === "cyl" ? Math.PI * (x / 2) ** 2 * y : (4 / 3) * Math.PI * (x / 2) ** 3; }
+const massOf = (p) => volume(p) * MATERIALS[p.userData.mat][1];
+const fmtMass = (kg) => (kg < 1 ? `${(kg * 1000).toFixed(kg < 0.1 ? 1 : 0)} g` : `${kg.toFixed(2)} kg`);
+function applySize(p) {
+  const s = p.userData.size, t = p.userData.type;
+  if (t === "cyl") s[2] = s[0]; if (t === "sph") s[1] = s[2] = s[0];
+  p.userData.mesh.scale.set(s[0], s[1], s[2]);
+  write(p.userData.label, (t === "box" ? `${mm(s[0])} × ${mm(s[1])} × ${mm(s[2])}` : t === "cyl" ? `⌀${mm(s[0])} × ${mm(s[1])}` : `⌀${mm(s[0])}`) + ` mm · ${fmtMass(massOf(p))}`);
+}
+function addPart(type, pos, size, mat = 2, quat) {
+  const p = new THREE.Group();
+  const mesh = new THREE.Mesh(GEO[type], new THREE.MeshStandardMaterial({ color: MATERIALS[mat][2], roughness: 0.6, metalness: mat < 2 ? 0.6 : 0.05 }));
+  mesh.userData.part = p; p.add(mesh);
+  p.userData = { type, size: [...(size ?? DEFAULTS[type])], mat, mesh, label: label() };
+  p.position.copy(pos); if (quat) p.quaternion.copy(quat);
+  scene.add(p); parts.push(p); applySize(p); return p;
+}
+function removePart(p) { scene.remove(p); scene.remove(p.userData.label); parts.splice(parts.indexOf(p), 1); if (selected === p) select(null); }
+function setMat(p, i) { p.userData.mat = i; p.userData.mesh.material.color.setHex(MATERIALS[i][2]); p.userData.mesh.material.metalness = i < 2 ? 0.6 : 0.05; applySize(p); }
+const benchTop = new THREE.Vector3();
+function snap(p) {
+  if (!snapOn) return;
+  p.position.set(Math.round(p.position.x * 100) / 100, Math.round(p.position.y * 200) / 200, Math.round(p.position.z * 100) / 100);
+  const e = new THREE.Euler().setFromQuaternion(p.quaternion, "YXZ"), q = Math.PI / 2, r = (a) => Math.round(a / q) * q;
+  p.quaternion.setFromEuler(new THREE.Euler(r(e.x), Math.round(e.y / (Math.PI / 12)) * (Math.PI / 12), r(e.z), "YXZ"));
+  p.userData.size = p.userData.size.map((v) => Math.max(0.005, Math.round(v * 200) / 200)); applySize(p);
+}
+function summary() {
+  const total = parts.reduce((a, p) => a + massOf(p), 0);
+  const t = `${parts.length} part${parts.length === 1 ? "" : "s"}` + (parts.length ? ` · ${fmtMass(total)}` : "");
+  $("sum").textContent = t; return t;
+}
+const record = () => parts.map((p) => { const e = new THREE.Euler().setFromQuaternion(p.quaternion, "YXZ"), d = THREE.MathUtils.radToDeg;
+  return { type: p.userData.type, size_mm: p.userData.size.map(mm), position_mm: [mm(p.position.x), mm(p.position.y - BENCH_Y), mm(p.position.z - BENCH.z)],
+    rotation_deg: [d(e.x), d(e.y), d(e.z)].map(Math.round), material: MATERIALS[p.userData.mat][0], density_kg_m3: MATERIALS[p.userData.mat][1], mass_kg: +massOf(p).toFixed(4),
+    _q: p.quaternion.toArray(), _m: p.userData.mat, _p: p.position.toArray(), _s: p.userData.size }; });
+function save() { summary(); try { localStorage.setItem("whim.spatial", JSON.stringify(record())); } catch (e) {} }
+function load() { try { for (const r of JSON.parse(localStorage.getItem("whim.spatial") || "[]")) addPart(r.type, new THREE.Vector3().fromArray(r._p), r._s, r._m, new THREE.Quaternion().fromArray(r._q)); } catch (e) {} }
+
+// ---------- headset: trigger grabs, second trigger stretches, drop in the red bin to delete ----------
+const ray = new THREE.Raycaster(); ray.far = 3;
+const tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
+const controllers = [0, 1].map((i) => {
+  const c = renderer.xr.getController(i);
+  c.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]), new THREE.LineBasicMaterial({ color: 0x6ea8ff, transparent: true, opacity: 0.6 })));
+  c.add(new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0x6ea8ff })));
+  c.addEventListener("selectstart", onSelectStart); c.addEventListener("selectend", onSelectEnd); scene.add(c); return c;
+});
+let stretch = null;
+function pick(c) {
+  tmpM.identity().extractRotation(c.matrixWorld);
+  ray.ray.origin.setFromMatrixPosition(c.matrixWorld); ray.ray.direction.set(0, 0, -1).applyMatrix4(tmpM);
+  return ray.intersectObjects([...parts.map((p) => p.userData.mesh), ...palette], false)[0]?.object;
+}
+const handPos = (c) => new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
+function onSelectStart(e) {
+  const c = e.target, other = controllers.find((x) => x !== c), held = other.userData.held;
+  if (held) {                                   // second hand: stretch along the part axis closest to the line between hands
+    const v = handPos(c).sub(handPos(other)), d0 = v.length();
+    v.applyQuaternion(held.getWorldQuaternion(tmpQ).invert());
+    const a = [Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)], axis = a.indexOf(Math.max(...a));
+    stretch = { part: held, a: other, b: c, d0: Math.max(d0, 0.01), axis, s0: held.userData.size[axis] }; return;
+  }
+  const hit = pick(c); if (!hit) return;
+  const part = hit.userData.palette ? addPart(hit.userData.palette, hit.getWorldPosition(new THREE.Vector3())) : hit.userData.part;
+  c.attach(part); c.userData.held = part;
+}
+function onSelectEnd(e) {
+  const c = e.target;
+  if (stretch && stretch.b === c) { snap(stretch.part); stretch = null; save(); return; }
+  const p = c.userData.held; if (!p) return;
+  if (stretch && stretch.a === c) stretch = null;
+  scene.attach(p); c.userData.held = null;
+  if (p.position.distanceTo(bin.getWorldPosition(tmpV)) < 0.14) removePart(p); else snap(p);
+  save();
+}
+async function enterXR() {
+  if (!navigator.xr) return say("This browser has no headset mode. Open this page in the Quest browser.", 6000);
+  try {
+    const ar = await navigator.xr.isSessionSupported("immersive-ar").catch(() => false);
+    const session = await navigator.xr.requestSession(ar ? "immersive-ar" : "immersive-vr", { optionalFeatures: ["local-floor", "bounded-floor"] });
+    renderer.xr.setReferenceSpaceType("local-floor");
+    scene.background = ar ? null : BG; floor.visible = !ar; select(null);
+    session.addEventListener("end", () => { scene.background = BG; floor.visible = true; });
+    await renderer.xr.setSession(session);
+  } catch (err) { say("Could not start headset mode: " + err.message, 8000); }
+}
+
+// ---------- screen: drag to slide a part on the bench, tap to edit its numbers ----------
+const mouse = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitPt = new THREE.Vector3();
+let drag = null;
+function screenRay(ev) { const r = renderer.domElement.getBoundingClientRect(); mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(mouse, camera); }
+renderer.domElement.addEventListener("pointerdown", (ev) => {
+  screenRay(ev); const hit = ray.intersectObjects(parts.map((p) => p.userData.mesh), false)[0];
+  if (!hit) return select(null);
+  const p = hit.object.userData.part; select(p);
+  plane.constant = -p.position.y; if (ray.ray.intersectPlane(plane, hitPt)) { drag = { p, off: p.position.clone().sub(hitPt) }; orbit.enabled = false; renderer.domElement.setPointerCapture(ev.pointerId); }
+});
+renderer.domElement.addEventListener("pointermove", (ev) => { if (!drag) return; screenRay(ev); if (ray.ray.intersectPlane(plane, hitPt)) drag.p.position.copy(hitPt).add(drag.off); });
+const endDrag = () => { if (!drag) return; snap(drag.p); drag = null; orbit.enabled = true; save(); };
+renderer.domElement.addEventListener("pointerup", endDrag); renderer.domElement.addEventListener("pointercancel", endDrag);
+
+function select(p) {
+  if (selected) selected.userData.mesh.material.emissive.setHex(0x000000);
+  selected = p; $("panel").hidden = !p; if (!p) return;
+  p.userData.mesh.material.emissive.setHex(0x1d3557); fill();
+}
+function fill() {
+  const p = selected, s = p.userData.size, t = p.userData.type;
+  $("sx").value = mm(s[0]); $("sy").value = mm(s[1]); $("sz").value = mm(s[2]);
+  $("sy").disabled = t === "sph"; $("sz").disabled = t !== "box";
+  $("py").value = mm(p.position.y - BENCH_Y - s[1] / 2); $("mat").value = p.userData.mat;
+  $("ry").value = Math.round(THREE.MathUtils.radToDeg(new THREE.Euler().setFromQuaternion(p.quaternion, "YXZ").y)); $("mass").value = fmtMass(massOf(p));
+}
+$("mat").innerHTML = MATERIALS.map((m, i) => `<option value="${i}">${m[0]}</option>`).join("");
+$("panel").addEventListener("input", () => {
+  const p = selected; if (!p) return; const n = (id, lo) => Math.max(lo, Number($(id).value) || lo) / 1000;
+  p.userData.size = [n("sx", 1), n("sy", 1), n("sz", 1)]; applySize(p);
+  p.position.y = BENCH_Y + p.userData.size[1] / 2 + Math.max(0, Number($("py").value) || 0) / 1000;
+  const e = new THREE.Euler().setFromQuaternion(p.quaternion, "YXZ"); e.y = THREE.MathUtils.degToRad(Number($("ry").value) || 0); p.quaternion.setFromEuler(e);
+  if (Number($("mat").value) !== p.userData.mat) setMat(p, Number($("mat").value));
+  $("mass").value = fmtMass(massOf(p)); save();
+});
+$("panel").addEventListener("submit", (e) => e.preventDefault());
+$("done").onclick = () => select(null);
+$("del").onclick = () => { if (selected) { removePart(selected); save(); } };
+$("dup").onclick = () => { const p = selected; if (!p) return; const c = addPart(p.userData.type, p.position.clone().add(new THREE.Vector3(p.userData.size[0] + 0.02, 0, 0)), p.userData.size, p.userData.mat, p.quaternion); select(c); save(); };
+document.querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => {
+  const t = b.dataset.add, s = DEFAULTS[t];
+  const p = addPart(t, new THREE.Vector3((parts.length % 5) * 0.12 - 0.24, BENCH_Y + s[1] / 2, BENCH.z + Math.floor(parts.length / 5) % 4 * 0.12 - 0.12)); select(p); save();
+}));
+$("snap").onclick = () => { snapOn = !snapOn; $("snap").setAttribute("aria-pressed", snapOn); $("snap").textContent = snapOn ? "Snap on" : "Snap off"; };
+$("copy").onclick = async () => {
+  const text = JSON.stringify(record().map(({ _q, _m, _p, _s, ...r }) => r), null, 1);
+  try { await navigator.clipboard.writeText(text); say("Parts list copied", 2000); } catch (e) { say("Copy was blocked by the browser", 3000); }
+};
+$("xr").onclick = enterXR;
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+const total = label(); total.scale.set(0.3, 0.056, 1);
+renderer.setAnimationLoop(() => {
+  if (stretch) {
+    const d = handPos(stretch.b).distanceTo(handPos(stretch.a));
+    stretch.part.userData.size[stretch.axis] = THREE.MathUtils.clamp(stretch.s0 * d / stretch.d0, 0.005, 3); applySize(stretch.part);
+  }
+  for (const p of parts) { p.getWorldPosition(tmpV); p.userData.label.position.set(tmpV.x, tmpV.y + Math.max(...p.userData.size) / 2 + 0.035, tmpV.z); }
+  total.position.set(0, BENCH_Y + 0.42, BENCH.z - BENCH.d / 2); write(total, summary());
+  if (!renderer.xr.isPresenting) orbit.update();
+  renderer.render(scene, camera);
+});
+load(); summary(); window.whim = { parts, record };
+say(navigator.xr ? "Add a shape, drag it on the bench, tap it to set exact sizes." : "Add a shape, drag it on the bench, tap it to set exact sizes. Headset mode needs the Quest browser.", 6000);
+</script>
+</body>
+</html>
