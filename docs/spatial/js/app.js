@@ -549,7 +549,7 @@ export async function download(name, data, type) {
 }
 const soup = (o) => { const s = new Float32Array(o.index.length * 3); o.index.forEach((v, i) => s.set(o.positions.subarray(3 * v, 3 * v + 3), 3 * i)); return s; };
 export async function exportModel(kind) {
-  if (!kernelReady()) return toast("Exporting needs the shape engine, which did not start in this browser.");
+  if (!kernelReady()) return toast(EMBED ? "Export works from the full page. This preview has no shape engine." : "Exporting needs the shape engine, which did not start in this browser.", 6000);
   const objs = solidMeshes(); if (!objs.length) return toast("There is nothing solid on the bench to export.");
   if (objs.length < S.nodes.filter((n) => M.isGeometry(n) && !n.hole).length) toast("A fused part could not be made watertight and was left out of the file.", 7000);
   let ok;
@@ -732,7 +732,7 @@ export async function init(container) {
   try { if (window.WHIM_NO_KERNEL) throw new Error("the mesh kernel is not part of this copy"); await initKernel(); kernelState = "ready"; }
   catch (e) {
     kernelState = "failed"; console.warn("mesh kernel not running:", e && e.message ? e.message : e);
-    toast(EMBED ? "Preview: fused parts are drawn approximately and export is off here. The full page has both." : "The shape engine could not start in this browser. Fused parts are drawn approximately and export is off.", 8000);
+    if (!EMBED) toast("The shape engine could not start in this browser. Fused parts are drawn approximately and export is off.", 8000);       // a preview frame says so with a standing note instead
   }
   for (const v of visuals.values()) if (v.node.kind === "group") buildVisual(v);
   emit("change"); emit("ready");

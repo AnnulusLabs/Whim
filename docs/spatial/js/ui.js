@@ -13,7 +13,7 @@ const narrow = () => innerWidth < 820;
 // ---------- toasts ----------
 function toast({ text, ms }) {
   const box = $("toasts"), el = document.createElement("div"); el.className = "toast"; el.textContent = text;
-  while (box.children.length > 2) box.firstChild.remove();
+  while (box.children.length > (narrow() ? 0 : 2)) box.firstChild.remove();          // a phone has room for one message at a time
   box.appendChild(el); setTimeout(() => el.remove(), ms);
 }
 
@@ -148,11 +148,11 @@ function onKey(ev) {
 export function initUI() {
   $("o-scale").innerHTML = SCALES.map((s) => `<option value="${s}">1:${s}${s === 1 ? " (life size)" : ""}</option>`).join("");
   $("o-env").innerHTML = Object.entries(ENVS).map(([k, e]) => `<option value="${k}">${e.name}, ${e.g.toFixed(2)} m/s²</option>`).join("");
-  if (A.EMBED) { $("a-3mf").firstChild.textContent = "Export for printing"; $("a-3mf").querySelector("small").textContent = "zip with 3MF and STL"; $("a-stl").hidden = true; }
+  if (A.EMBED) { $("help-embed").hidden = false; $("b-preview").hidden = false; $("a-3mf").firstChild.textContent = "Export for printing"; $("a-3mf").querySelector("small").textContent = "zip with 3MF and STL"; $("a-stl").hidden = true; }
   panelShut = narrow();
 
   for (const [b, m] of menus) $(b).addEventListener("click", (ev) => { ev.stopPropagation(); toggleMenu(b, m); });
-  document.addEventListener("pointerdown", (ev) => { if (!ev.target.closest(".menu, #tools")) closeMenus(); if (!$("help").hidden && !ev.target.closest("#help, .menu")) $("help").hidden = true; });
+  document.addEventListener("pointerdown", (ev) => { if (!ev.target.closest(".menu, #tools")) closeMenus(); if (!$("help").hidden && !ev.target.closest("#help, .menu, #b-preview")) $("help").hidden = true; });
   $("m-add").addEventListener("click", (ev) => { const b = ev.target.closest("[data-add]"); if (!b) return; closeMenus(); A.spawn(b.dataset.add); });
   $("b-undo").addEventListener("click", A.undo); $("b-redo").addEventListener("click", A.redo);
   $("b-test").addEventListener("click", () => { closeMenus(); A.runTest(); });
@@ -170,7 +170,9 @@ export function initUI() {
   act("a-example", () => { A.loadExample(); A.toast("The example bracket is back. Press Test to see it carry 5 kg."); });
   act("a-clear", () => { A.clearBench(); A.toast("Bench cleared. Undo brings it back."); });
   act("a-fit", () => A.fitView());
-  act("a-help", () => { $("copyrow").hidden = true; $("help").hidden = false; $("help-x").focus(); });
+  const openHelp = () => { $("copyrow").hidden = true; $("help").hidden = false; $("help-x").focus(); };
+  act("a-help", openHelp);
+  $("b-preview").addEventListener("click", () => { openHelp(); $("help-embed").scrollIntoView({ block: "center" }); });
   $("help-x").addEventListener("click", () => { $("help").hidden = true; });
   $("file").addEventListener("change", async (ev) => { const f = ev.target.files[0]; ev.target.value = ""; if (f) A.openFile(await f.text()); });
 
@@ -194,7 +196,7 @@ export function initUI() {
   A.on("change", () => { buildPanel(); refreshBar(); });
   A.on("live", fillPanel);
   A.on("busy", refreshBar);
-  A.on("test", showResult);
+  A.on("test", (t) => { if (t) $("toasts").replaceChildren(); showResult(t); });      // the result is the news now
   A.on("xr", refreshXR);
   A.on("ready", () => { refreshBar(); buildPanel(); });
   refreshBar(); refreshXR();

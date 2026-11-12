@@ -59,6 +59,7 @@ body { background: var(--ink); color: var(--text); font: 14px/1.4 var(--ui); ove
 .brand b { font-size: 17px; letter-spacing: .01em; }
 .brand span { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .16em; }
 .chip { font: 12.5px/1 var(--num); background: rgba(21, 32, 42, .9); border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; white-space: nowrap; }
+.chip.tap { color: var(--warn); border-color: #5a4a2c; cursor: pointer; min-height: 30px; }
 .grow { flex: 1; }
 
 #tools { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(10px + var(--safe-b)); display: flex; gap: 6px; padding: 6px; background: rgba(14, 22, 29, .9); border: 1px solid var(--line); border-radius: 15px; max-width: calc(100% - 16px); }
@@ -148,6 +149,7 @@ legend { padding: 0 0 5px; color: var(--dim); font-size: 12px; letter-spacing: .
     <b>whim</b><span>spatial bench</span>
   </div>
   <div class="chip" id="summary">Starting</div>
+  <button class="chip tap" id="b-preview" aria-label="This is a preview. What is switched off?" hidden>Preview</button>
   <span class="grow"></span>
   <button class="btn hero" id="b-xr" hidden>Enter headset</button>
 </header>
@@ -208,6 +210,7 @@ legend { padding: 0 0 5px; color: var(--dim); font-size: 12px; letter-spacing: .
   <p>Colour shows stress and red is the peak. Safety factor is the material's strength divided by the peak stress. The part's own weight counts, at the gravity you chose.</p>
   <p>The test is a quick straight-line elastic estimate on a grid of bricks, one uniform material, small bending. It leaves out buckling, fatigue, impact, weak print layers, and the extra stress at sharp inside corners. Material figures are typical handbook values. Use the datasheet for your own stock when it matters.</p>
   <h3>In a headset</h3>
+  <p id="help-embed" hidden><b>This is a preview inside another page.</b> The headset view, offline use and the exact shape engine are off here. They work from the full page, hosted on its own address.</p>
   <p>Open this page in the Quest browser and press Enter headset. You see your room with the bench in front of you.</p>
   <p>Point at a shape on the shelf along the back and pull the trigger, or pinch. It appears in your hand. Let go to put it down.</p>
   <p>The trigger, or a pinch, carries a part and keeps it square. The grip button carries and turns it. While holding a part, press with the other hand and pull your hands apart to stretch it.</p>
