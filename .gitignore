@@ -30,4 +30,7 @@ public/serviceworker.js.map
 
 *.csv#
 
-.~lock*server/data/
+.~lock*
+
+# sheets saved by the self-hosted server
+server/data/

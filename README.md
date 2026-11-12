@@ -4,15 +4,33 @@ A notebook for inventors and independent researchers. Unit-checked engineering m
 
 Whim is a fork of [EngineeringPaper.xyz](https://github.com/mgreminger/EngineeringPaper.xyz) by Engineering Paper LLC, used under the MIT license. The calculation engine, unit system, fluid properties, data tables and plotting are their work. See `LICENSE`.
 
-## What Whim adds (in progress)
+## What is in this repository
 
-- Environment presets: Earth sea level, Taos, Mars, Moon
-- Material, fastener and chemistry cards, each value carrying its source
-- Templates that fill themselves from a project: design, test, prototype, produce
-- Sealed records: a fingerprint over inputs, data rows, formulas and results
-- Supplier search links for the United States, Canada and Mexico
+### Spatial Bench (`docs/spatial/`)
 
-Status: this branch renames the app. Nothing above is merged yet.
+Build parts by hand, in a headset or on a screen, and test whether they hold.
+
+- **Headset**: WebXR, built around the Quest 3. Passthrough by default, controllers or tracked hands. Take shapes off a shelf, carry, turn and stretch them, fuse them, cut holes, clamp, load, test.
+- **Screen**: the same bench with mouse or touch, on a phone, tablet or desktop.
+- **Solid modelling**: shapes fuse into watertight solids through the [Manifold](https://github.com/elalish/manifold) kernel. Export 3MF or STL in millimetres.
+- **Stress test**: a linear elastic solver written for this project runs in the browser. It reports peak stress, deflection and a safety factor against the material's strength, under Earth, Mars or Moon gravity. Checked against beam theory in `spatial-tests/`.
+- **Yours**: static files, no build step, no account, no CDN. After one visit it runs with no network. Work is kept on the device.
+
+Run it from any static file server pointed at `docs/`, or turn on GitHub Pages for this branch with the `/docs` folder and open `/spatial/`. A headset needs HTTPS, which Pages provides.
+
+Limits worth knowing. The stress test is a quick estimate: one uniform material, small deflections, no buckling, fatigue or print-layer effects, and it is rough at sharp inside corners and knife edges. The material table holds typical handbook values that have not yet been checked against sources, so use the datasheet for your own stock when the answer matters.
+
+### Notebook (the EngineeringPaper.xyz app, renamed)
+
+Unit-checked engineering calculations, fluid properties, data tables and plots, running in the browser. Planned additions: environment presets (Earth, Taos, Mars, Moon), material and fastener cards that carry their sources, and sealed records.
+
+### Your own server (`server/`)
+
+A Node standard-library server that replaces the Cloudflare worker the upstream app depends on. It serves the built notebook and stores shared sheets as files on your own disk. See `server/README.md`.
+
+### Tests
+
+`spatial-tests/` holds unit tests for the geometry and the solver, and end-to-end tests that drive the real page in headless Chromium, including an emulated Quest 3. See `spatial-tests/README.md`.
 
 ---
 
