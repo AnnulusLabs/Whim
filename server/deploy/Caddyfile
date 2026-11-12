@@ -1,0 +1,6 @@
+# Replace the hostname. Caddy fetches the TLS certificate itself.
+# HTTPS is required: browsers only allow the offline install over a secure origin.
+whim.example.org {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8787
+}

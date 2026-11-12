@@ -30,4 +30,4 @@ public/serviceworker.js.map
 
 *.csv#
 
-.~lock*
+.~lock*server/data/

@@ -1,0 +1,20 @@
+[Unit]
+Description=Whim notebook server
+After=network.target
+
+[Service]
+User=whim
+WorkingDirectory=/opt/whim
+Environment=WHIM_DIST=/opt/whim/dist
+Environment=WHIM_DATA=/var/lib/whim
+Environment=WHIM_HOST=127.0.0.1
+Environment=WHIM_PORT=8787
+ExecStart=/usr/bin/node /opt/whim/server/whim-server.mjs
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/whim
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
