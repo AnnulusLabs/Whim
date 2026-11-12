@@ -179,10 +179,12 @@ try {
 { const srv2 = serve(ROOT, 8931, { block: ['manifold.wasm'] }), ctx = await browser.newContext({ viewport: { width: 1100, height: 760 } }), pg = await ctx.newPage(), errs = []; watch(pg, errs);
   await pg.goto('http://localhost:8931/?nosw'); await ready(pg, false); await pg.waitForFunction(() => document.querySelector('.toast'), null, { timeout: 20000 }).catch(() => {});
   const said = await st(pg, () => [...document.querySelectorAll('.toast')].map((e) => e.textContent).join(' | '));
-  const s = await st(pg, () => ({ kernel: whim.A.kernelReady(), vol: whim.A.volumeOf(whim.S.nodes[0]), meshes: whim.A.visuals.get(5).pick.length }));
-  check('without the shape engine: says so, shows the pieces unmerged, estimates volume', !s.kernel && /shape engine/.test(said) && s.meshes === 4 && near(s.vol, 1.030979e-4, 0.005), `${(s.vol * 1e9).toFixed(0)} mm3, ${s.meshes} meshes`);
-  await pg.click('#b-test'); await waitTest(pg); const t = await st(pg, () => whim.S.test);
-  check('without the shape engine: the stress test still runs', t.verdict === 'Holds' && t.peak > 1e6, `peak ${(t.peak / 1e6).toFixed(2)} MPa`);
+  const s = await st(pg, () => { const v = whim.A.visuals.get(5); return { kernel: whim.A.kernelReady(), vol: whim.A.volumeOf(whim.S.nodes[0]), meshes: v.pick.length, tris: v.body.geometry.getAttribute('position').count / 3 }; });
+  check('without the shape engine: says so, draws the fused part from its outer skin, estimates volume', !s.kernel && /shape engine/.test(said) && s.meshes === 1 && s.tris > 1500 && near(s.vol, 1.030979e-4, 0.005), `${(s.vol * 1e9).toFixed(0)} mm3, ${s.tris} triangles`);
+  await pg.click('#b-test'); await waitTest(pg); await pg.waitForTimeout(300); const t = await st(pg, () => ({ ...whim.S.test, coloured: whim.A.visuals.get(5).body.visible === false }));
+  check('without the shape engine: the stress test still runs and colours the part', t.verdict === 'Holds' && t.peak > 1e6 && t.coloured, `peak ${(t.peak / 1e6).toFixed(2)} MPa`);
+  await pg.click('#b-more'); await pg.click('#a-3mf'); await pg.waitForTimeout(200);
+  check('without the shape engine: export explains itself instead of failing', /Exporting needs the shape engine/.test(await st(pg, () => [...document.querySelectorAll('.toast')].map((e) => e.textContent).join(' | '))));
   await pg.screenshot({ path: OUT + 'nokernel.png' });
   await ctx.close(); srv2.close(); }
 

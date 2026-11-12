@@ -111,19 +111,90 @@ const UNIT = { box: new THREE.BoxGeometry(1, 1, 1), cyl: new THREE.CylinderGeome
 const UNIT_EDGES = Object.fromEntries(Object.entries(UNIT).map(([k, g]) => [k, new THREE.EdgesGeometry(g, 30)]));
 export const unitGeometry = (shape) => UNIT[shape] || UNIT.box;
 
-const groupCache = new Map(), estimateCache = new Map();
-function groupMesh(n) {
-  if (!kernelReady()) return null;
-  const key = JSON.stringify(n.children);
-  if (!groupCache.has(key)) {
-    try {
-      const m = meshLocal(n);
-      let geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(m.positions, 3)); geo.setIndex(new THREE.BufferAttribute(m.index, 1));
-      geo = toCreasedNormals(geo, 0.5);
-      groupCache.set(key, { geometry: geo, edges: new THREE.EdgesGeometry(geo, 28), volume: m.volume, com: m.com, pieces: m.pieces, raw: m });
-    } catch (e) { console.warn("fuse failed", e); groupCache.set(key, null); }
+// ---------- fused shapes ----------
+// With the mesh kernel a fused part is an exact watertight solid. Without it (WebAssembly blocked, say) the part is
+// still drawn and tested: the shapes' own surfaces are cut into small triangles and only those lying on the outside
+// of the result are kept. That skin is fine for looking and for showing stress, but not for export.
+let kernelState = "loading";                                        // "loading" | "ready" | "failed"
+const groupCache = new Map(), estimateCache = new Map(), SOUP = {};
+const soupOf = (shape) => (SOUP[shape] ||= UNIT[shape].index ? UNIT[shape].toNonIndexed() : UNIT[shape]);
+/** Every surface triangle of every shape in a part, in the part's own frame: 9 position numbers then 9 normal numbers each. */
+function leafSoup(part) {
+  const tris = [], nm = new THREE.Matrix3(), a = new THREE.Vector3(), I3 = new THREE.Vector3(1, 1, 1);
+  const emit = (shape, mat) => {
+    const g = soupOf(shape), P = g.getAttribute("position").array, N = g.getAttribute("normal").array; nm.getNormalMatrix(mat);
+    for (let i = 0; i < P.length; i += 9) {
+      const t = new Array(18);
+      for (let c = 0; c < 3; c++) {
+        a.set(P[i + 3 * c], P[i + 3 * c + 1], P[i + 3 * c + 2]).applyMatrix4(mat); t[3 * c] = a.x; t[3 * c + 1] = a.y; t[3 * c + 2] = a.z;
+        a.set(N[i + 3 * c], N[i + 3 * c + 1], N[i + 3 * c + 2]).applyMatrix3(nm).normalize(); t[9 + 3 * c] = a.x; t[10 + 3 * c] = a.y; t[11 + 3 * c] = a.z;
+      }
+      tris.push(t);
+    }
+  };
+  const walk = (node, toRoot) => {
+    for (const c of node.children) {
+      const m = new THREE.Matrix4().compose(new THREE.Vector3(...c.pos), new THREE.Quaternion(...c.quat), I3).premultiply(new THREE.Matrix4().makeScale(node.s, node.s, node.s)).premultiply(toRoot);
+      if (c.kind === "group") walk(c, m); else emit(c.shape, m.multiply(new THREE.Matrix4().makeScale(...c.size)));
+    }
+  };
+  if (part.kind === "group") walk(part, new THREE.Matrix4()); else emit(part.kind === "prim" ? part.shape : "box", new THREE.Matrix4().makeScale(...part.size));
+  return tris;
+}
+/** Split triangles at their longest edge until none is longer than `target`, or `cap` triangles is reached. Neighbours split alike, so no cracks. */
+function subdivide(tris, target, cap) {
+  const t2 = target * target, stack = tris.slice(), done = [];
+  while (stack.length) {
+    const t = stack.pop(); let worst = 0, e = -1;
+    for (let a = 0; a < 3; a++) { const b = (a + 1) % 3, d = (t[3 * a] - t[3 * b]) ** 2 + (t[3 * a + 1] - t[3 * b + 1]) ** 2 + (t[3 * a + 2] - t[3 * b + 2]) ** 2; if (d > worst) { worst = d; e = a; } }
+    if (worst <= t2 || done.length + stack.length >= cap) { done.push(t); continue; }
+    const a = e, b = (e + 1) % 3, c = (e + 2) % 3, mid = [], mn = [];
+    for (let q = 0; q < 3; q++) { mid.push(0.5 * (t[3 * a + q] + t[3 * b + q])); mn.push(t[9 + 3 * a + q] + t[9 + 3 * b + q]); }
+    const L = Math.hypot(mn[0], mn[1], mn[2]) || 1, pt = (i) => [t[3 * i], t[3 * i + 1], t[3 * i + 2]], nr = (i) => [t[9 + 3 * i], t[10 + 3 * i], t[11 + 3 * i]], m3 = mn.map((x) => x / L);
+    stack.push([...pt(a), ...mid, ...pt(c), ...nr(a), ...m3, ...nr(c)], [...mid, ...pt(b), ...pt(c), ...m3, ...nr(b), ...nr(c)]);
   }
-  return groupCache.get(key);
+  return done;
+}
+/** Keep the triangles with the part on one side and open space on the other. Walls of holes are turned to face the open side. */
+function outerSkin(part, tris, eps) {
+  const out = [];
+  for (const t of tris) {
+    const ux = t[3] - t[0], uy = t[4] - t[1], uz = t[5] - t[2], wx = t[6] - t[0], wy = t[7] - t[1], wz = t[8] - t[2];
+    let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx; const L = Math.hypot(nx, ny, nz); if (!(L > 0)) continue;
+    nx *= eps / L; ny *= eps / L; nz *= eps / L;
+    const cx = (t[0] + t[3] + t[6]) / 3, cy = (t[1] + t[4] + t[7]) / 3, cz = (t[2] + t[5] + t[8]) / 3;
+    const front = M.insideLocal(part, [cx + nx, cy + ny, cz + nz]), back = M.insideLocal(part, [cx - nx, cy - ny, cz - nz]);
+    if (front === back) continue;                                   // buried inside the part, or in open space
+    if (front) { for (const o of [0, 9]) for (let q = 0; q < 3; q++) { const tmp = t[o + 3 + q]; t[o + 3 + q] = t[o + 6 + q]; t[o + 6 + q] = tmp; } for (let q = 9; q < 18; q++) t[q] = -t[q]; }
+    out.push(t);
+  }
+  return out;
+}
+function soupGeometry(tris) {
+  const pos = new Float32Array(tris.length * 9), nor = new Float32Array(tris.length * 9);
+  tris.forEach((t, i) => { for (let q = 0; q < 9; q++) { pos[9 * i + q] = t[q]; nor[9 * i + q] = t[9 + q]; } });
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("normal", new THREE.BufferAttribute(nor, 3)); return g;
+}
+function exactGroup(n) {
+  const m = meshLocal(n);
+  let geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(m.positions, 3)); geo.setIndex(new THREE.BufferAttribute(m.index, 1));
+  geo = toCreasedNormals(geo, 0.5);
+  return { geometry: geo, edges: new THREE.EdgesGeometry(geo, 28), volume: m.volume, com: m.com, pieces: m.pieces, raw: m, rough: false };
+}
+function roughGroup(n) {
+  const unit = { ...n, s: 1 }, size = Math.max(...M.extent(unit)), est = M.estimateProps(unit, 36);
+  const skin = outerSkin(unit, subdivide(leafSoup(unit), size / 44, SMALL ? 14000 : 30000), Math.max(1e-7, 2e-4 * size));
+  return { geometry: soupGeometry(skin), edges: null, volume: est.volume, com: est.com, pieces: 1, raw: null, rough: true };
+}
+/** The drawable form of a fused part at scale 1, made once per set of shapes. Null while the kernel is still loading. */
+function groupMesh(n) {
+  if (kernelState === "loading") return null;
+  const key = JSON.stringify(n.children), hit = groupCache.get(key);
+  if (hit !== undefined && !(hit && hit.rough && kernelState === "ready")) return hit;
+  let made = null;
+  try { made = kernelState === "ready" ? exactGroup(n) : roughGroup(n); }
+  catch (e) { console.warn("fuse failed, drawing it approximately", e); try { made = roughGroup(n); } catch (e2) { console.warn(e2); } }
+  groupCache.set(key, made); return made;
 }
 export function volumeOf(n) {
   if (n.kind === "prim") return M.primVolume(n);
@@ -164,7 +235,7 @@ function buildVisual(v) {
   const edgeMat = new THREE.LineBasicMaterial({ color: COLORS.edge });
   if (n.kind === "group") {
     const g = groupMesh(n);
-    if (g) { v.body = new THREE.Mesh(g.geometry, bodyMaterial(n)); v.edges = new THREE.LineSegments(g.edges, edgeMat); v.body.add(v.edges); v.pick = [v.body]; }
+    if (g) { v.body = new THREE.Mesh(g.geometry, bodyMaterial(n)); if (g.edges) { v.edges = new THREE.LineSegments(g.edges, edgeMat); v.body.add(v.edges); } v.pick = [v.body]; }
     else v.body = assembly(n, n, v.pick);
   } else {
     const shape = n.kind === "prim" ? n.shape : "box";
@@ -233,7 +304,7 @@ export function commit() { clearTest(); if (stateKey() !== lastKey) pushHistory(
 function pruneCache() {
   if (groupCache.size <= 16 && estimateCache.size <= 64) return;
   const live = new Set(S.nodes.filter((n) => n.kind === "group").map((n) => JSON.stringify(n.children)));
-  for (const [key, g] of groupCache) if (!live.has(key)) { if (g) { g.geometry.dispose(); g.edges.dispose(); } groupCache.delete(key); }
+  for (const [key, g] of groupCache) if (!live.has(key)) { if (g) { g.geometry.dispose(); if (g.edges) g.edges.dispose(); } groupCache.delete(key); }
   for (const key of estimateCache.keys()) if (!live.has(key)) estimateCache.delete(key);
 }
 function restore(json, keepHistory = true) {
@@ -328,7 +399,7 @@ export function fuse(id = S.active) {
   if (cluster.length < 2) return toast("Nothing is touching this shape. Move shapes together, then Fuse.");
   const solids = cluster.filter((n) => !n.hole); if (!solids.length) return toast("A hole needs a solid shape to cut. Push it into one, then Fuse.");
   const members = S.nodes.filter((n) => cluster.includes(n)), g = M.makeGroup(S.nextId++, members, (start.hole ? solids[0] : start).mat);
-  if (kernelReady()) { const gm = groupMesh(g); if (gm && !(gm.volume > 1e-18)) return toast("Those holes would remove the whole shape."); }
+  { const gm = groupMesh(g); if (gm && !(gm.volume > 1e-18)) return toast("Those holes would remove the whole shape."); }
   for (const n of members) dropNode(n);
   addNode(g); setActive(g.id); commit(); toast(`Fused ${members.length} shapes into one part.`); return g;
 }
@@ -426,18 +497,9 @@ function showResult(part, r) {
     if (src.index) src = src.toNonIndexed();
     const P = src.getAttribute("position").array, N = src.getAttribute("normal").array, cap = SMALL ? 14000 : 36000;
     const cell = (a) => { let m = 0; for (let i = 1; i < a.length; i++) m = Math.max(m, a[i] - a[i - 1]); return m; };
-    const target = Math.max(maxDim / 70, 0.6 * Math.min(cell(r.xs), cell(r.ys), cell(r.zs))), t2 = target * target;
-    const stack = []; for (let i = 0; i < P.length; i += 9) stack.push([P[i], P[i + 1], P[i + 2], P[i + 3], P[i + 4], P[i + 5], P[i + 6], P[i + 7], P[i + 8], N[i], N[i + 1], N[i + 2], N[i + 3], N[i + 4], N[i + 5], N[i + 6], N[i + 7], N[i + 8]]);
-    const done = [];
-    while (stack.length) {
-      const t = stack.pop(); let worst = 0, e = -1;
-      for (let a = 0; a < 3; a++) { const b = (a + 1) % 3, d = (t[3 * a] - t[3 * b]) ** 2 + (t[3 * a + 1] - t[3 * b + 1]) ** 2 + (t[3 * a + 2] - t[3 * b + 2]) ** 2; if (d > worst) { worst = d; e = a; } }
-      if (worst <= t2 || done.length + stack.length >= cap) { done.push(t); continue; }
-      const a = e, b = (e + 1) % 3, c = (e + 2) % 3, mid = [], mn = [];
-      for (let q = 0; q < 3; q++) { mid.push(0.5 * (t[3 * a + q] + t[3 * b + q])); mn.push(t[9 + 3 * a + q] + t[9 + 3 * b + q]); }
-      const L = Math.hypot(mn[0], mn[1], mn[2]) || 1, pt = (i) => [t[3 * i], t[3 * i + 1], t[3 * i + 2]], nm = (i) => [t[9 + 3 * i], t[10 + 3 * i], t[11 + 3 * i]], m3 = mn.map((x) => x / L);
-      stack.push([...pt(a), ...mid, ...pt(c), ...nm(a), ...m3, ...nm(c)], [...mid, ...pt(b), ...pt(c), ...m3, ...nm(b), ...nm(c)]);
-    }
+    const target = Math.max(maxDim / 70, 0.6 * Math.min(cell(r.xs), cell(r.ys), cell(r.zs)));
+    const tris = []; for (let i = 0; i < P.length; i += 9) tris.push([P[i], P[i + 1], P[i + 2], P[i + 3], P[i + 4], P[i + 5], P[i + 6], P[i + 7], P[i + 8], N[i], N[i + 1], N[i + 2], N[i + 3], N[i + 4], N[i + 5], N[i + 6], N[i + 7], N[i + 8]]);
+    const done = subdivide(tris, target, cap);
     const nv = done.length * 3, pos = new Float32Array(nv * 3), nor = new Float32Array(nv * 3), col = new Float32Array(nv * 3), disp = new Float32Array(nv * 3);
     const sample = makeSampler(r), out = {}, color = new THREE.Color(), top = r.peak || r.peakAll || 1;
     done.forEach((t, ti) => { for (let c = 0; c < 3; c++) { const o = (ti * 3 + c) * 3; pos[o] = t[3 * c]; pos[o + 1] = t[3 * c + 1]; pos[o + 2] = t[3 * c + 2]; nor[o] = t[9 + 3 * c]; nor[o + 1] = t[10 + 3 * c]; nor[o + 2] = t[11 + 3 * c];
@@ -489,6 +551,7 @@ const soup = (o) => { const s = new Float32Array(o.index.length * 3); o.index.fo
 export async function exportModel(kind) {
   if (!kernelReady()) return toast("Exporting needs the shape engine, which did not start in this browser.");
   const objs = solidMeshes(); if (!objs.length) return toast("There is nothing solid on the bench to export.");
+  if (objs.length < S.nodes.filter((n) => M.isGeometry(n) && !n.hole).length) toast("A fused part could not be made watertight and was left out of the file.", 7000);
   let ok;
   // A preview frame only passes common file types, so both formats travel together in one zip there.
   if (EMBED) ok = await download("whim-part.zip", zipStore([{ name: "whim-part.3mf", data: write3MF(objs) }, { name: "whim-part.stl", data: writeSTL(objs.map(soup)) }]), "application/zip");
@@ -666,7 +729,11 @@ export async function init(container) {
   if (json) { S.snap = saved.snap !== false; if (MATERIALS[saved.lastMat]) S.lastMat = saved.lastMat; restore(json, false); }
   else restore(JSON.stringify({ ...exampleNodes(), scale: 1, env: "earth" }), false);
   fitView(); renderer.setAnimationLoop(frame);
-  try { await initKernel(); for (const v of visuals.values()) if (v.node.kind === "group") buildVisual(v); emit("change"); }
-  catch (e) { console.warn("kernel failed", e); toast("The shape engine could not start in this browser. Fused parts are shown unmerged and export is off.", 8000); }
-  emit("ready");
+  try { if (window.WHIM_NO_KERNEL) throw new Error("the mesh kernel is not part of this copy"); await initKernel(); kernelState = "ready"; }
+  catch (e) {
+    kernelState = "failed"; console.warn("mesh kernel not running:", e && e.message ? e.message : e);
+    toast(EMBED ? "Preview: fused parts are drawn approximately and export is off here. The full page has both." : "The shape engine could not start in this browser. Fused parts are drawn approximately and export is off.", 8000);
+  }
+  for (const v of visuals.values()) if (v.node.kind === "group") buildVisual(v);
+  emit("change"); emit("ready");
 }
