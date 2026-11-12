@@ -1,4 +1,36 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Whim</title>
-<style>body{margin:0;background:#0f1418;color:#e9eef2;font:17px/1.5 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}main{max-width:34rem;padding:24px}a{color:#6ea8ff}</style></head>
-<body><main><h1>Whim</h1><p>Tools for inventors, from AnnulusLabs.</p><p><a href="spatial/">Spatial Bench</a>: build parts with your hands in a headset, or by dragging on a screen. Sizes in millimetres, mass from real densities.</p></main></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e161d">
+<title>Whim</title>
+<style>
+:root { --ink: #0e161d; --panel: #15202a; --line: #2c3c4a; --text: #e6edf2; --dim: #8fa2b1; --accent: #39d0d8; color-scheme: dark; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--ink); color: var(--text); font: 17px/1.55 system-ui, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 36rem; padding: 28px 22px; display: grid; gap: 18px; }
+.brand { display: flex; align-items: center; gap: 10px; margin: 0; font: 700 20px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.brand svg { color: var(--accent); }
+h1 { margin: 0; font-size: 30px; line-height: 1.2; text-wrap: balance; }
+p { margin: 0; color: #cdd8e0; }
+a { color: var(--accent); }
+.card { display: grid; gap: 6px; padding: 18px 20px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; text-decoration: none; color: var(--text); }
+.card:hover, .card:focus-visible { border-color: var(--accent); outline: none; }
+.card b { font-size: 19px; color: var(--accent); }
+.card span { color: #cdd8e0; font-size: 16px; }
+.fine { font-size: 14.5px; color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <p class="brand"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-width="2.4"/><circle cx="12" cy="12" r="3.6" stroke-width="2"/></svg>whim</p>
+  <h1>Tools for people who build their own ideas.</h1>
+  <p>From AnnulusLabs. Everything here runs on your own device and keeps working with no network.</p>
+  <a class="card" href="spatial/">
+    <b>Spatial Bench</b>
+    <span>Build parts by hand, in a headset or on a screen. Fuse shapes, cut holes, clamp it, load it, and see whether it holds on Earth, Mars or the Moon. Export 3MF or STL.</span>
+  </a>
+  <p class="fine">The Whim notebook, calculations with units forked from EngineeringPaper.xyz, lives in the same repository and runs from your own server. <a href="https://github.com/AnnulusLabs/Whim">Source on GitHub</a>.</p>
+</main>
+</body>
+</html>

@@ -2,269 +2,223 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e161d">
+<meta name="description" content="Build parts by hand on a bench, in a headset or on a screen, and test whether they hold. Runs on your own device.">
 <title>Whim Spatial Bench</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three.module.min.js",
+  "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js",
+  "three/addons/utils/BufferGeometryUtils.js": "./vendor/BufferGeometryUtils.js"
+} }
+</script>
 <style>
-/* Layout idea: the 3D bench fills the screen; one slim tool rail floats over it. */
-:root{ --ink:#e9eef2; --mute:#9fb0bd; --panel:rgba(18,24,30,.86); --line:#34424e; --blue:#6ea8ff; --warn:#ffb454; --bg:#0f1418;
-  --body:system-ui,-apple-system,"Segoe UI",sans-serif; --mono:ui-monospace,Menlo,Consolas,monospace; color-scheme:dark }
-*{box-sizing:border-box} html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--ink);font:15px/1.4 var(--body);overflow:hidden}
-canvas{display:block;touch-action:none}
-#rail{position:fixed;left:12px;top:12px;right:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;pointer-events:none}
-#rail>*{pointer-events:auto}
-button,select,input{font:inherit;color:inherit}
-.b{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 13px;cursor:pointer}
-.b.go{border-color:var(--blue);color:var(--blue);font-weight:600}
-.b[aria-pressed="true"]{border-color:var(--blue)}
-:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
-#sum{margin-left:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 13px;font-family:var(--mono);font-variant-numeric:tabular-nums}
-#panel{position:fixed;left:12px;bottom:12px;right:12px;max-width:560px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-#panel[hidden]{display:none}
-#panel label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--mute)}
-#panel input,#panel select{background:#0c1115;border:1px solid var(--line);border-radius:6px;padding:7px;min-width:0;font-family:var(--mono)}
-#panel .wide{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}
-#msg{position:fixed;left:50%;top:64px;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:14px;max-width:min(92vw,560px);text-align:center}
-#msg:empty{display:none}
+:root {
+  /* layout: the bench fills the screen; controls are thin instrument strips on the edges and never cover its centre */
+  --ink: #0e161d;      /* page and the space behind the bench */
+  --panel: #15202a;    /* strips and cards */
+  --raised: #1e2b37;   /* buttons and fields */
+  --line: #2c3c4a;     /* hairlines */
+  --text: #e6edf2;
+  --dim: #8fa2b1;
+  --accent: #39d0d8;   /* selection and the main action */
+  --pass: #5ad18a; --warn: #ffb454; --fail: #ff6b6b;   /* verdicts only */
+  --ui: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --num: ui-monospace, "SF Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --safe-t: env(safe-area-inset-top, 0px); --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px); --safe-r: env(safe-area-inset-right, 0px);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--ink); color: var(--text); font: 14px/1.4 var(--ui); overflow: hidden; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; }
+[hidden] { display: none !important; }
+#stage { position: fixed; inset: 0; }
+#stage canvas { display: block; touch-action: none; outline: none; }
+
+.btn { font: 600 14px/1 var(--ui); color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: 10px; min-height: 44px; padding: 0 12px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; }
+.btn:hover { border-color: #4a6479; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: default; transform: none; }
+.btn.hero { background: #0f6f78; border-color: var(--accent); color: #f2fbfc; }
+.btn.quiet { background: transparent; }
+.btn.danger { color: #ffb0b0; }
+.btn[aria-pressed="true"], .btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.btn.sm { min-height: 36px; padding: 0 10px; font-size: 13px; }
+.btn svg { flex: none; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+#top { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: calc(8px + var(--safe-t)) calc(12px + var(--safe-r)) 8px calc(12px + var(--safe-l)); pointer-events: none; }
+#top > * { pointer-events: auto; }
+.brand { display: flex; align-items: center; gap: 8px; font-family: var(--num); }
+.brand svg { color: var(--accent); }
+.brand b { font-size: 17px; letter-spacing: .01em; }
+.brand span { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .16em; }
+.chip { font: 12.5px/1 var(--num); background: rgba(21, 32, 42, .9); border: 1px solid var(--line); border-radius: 999px; padding: 7px 11px; white-space: nowrap; }
+.grow { flex: 1; }
+
+#tools { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(10px + var(--safe-b)); display: flex; gap: 6px; padding: 6px; background: rgba(14, 22, 29, .9); border: 1px solid var(--line); border-radius: 15px; max-width: calc(100% - 16px); }
+#tools .btn { padding: 0 11px; }
+#tools .icon { padding: 0; width: 44px; }
+
+.card { position: fixed; background: rgba(21, 32, 42, .95); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+.menu { background: var(--panel); left: 50%; transform: translateX(-50%); bottom: calc(72px + var(--safe-b)); width: min(360px, calc(100% - 16px)); max-height: calc(100% - 150px - var(--safe-b)); overflow: auto; padding: 8px; display: grid; gap: 4px; z-index: 5; }
+.menu .item { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 10px; border: 0; border-radius: 9px; background: none; color: var(--text); font: 500 14px/1.2 var(--ui); text-align: left; cursor: pointer; width: 100%; }
+.menu .item:hover { background: var(--raised); }
+.menu .item small { color: var(--dim); font-size: 12px; margin-left: auto; text-align: right; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+.menu .set { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 10px; font-weight: 500; }
+#m-add { grid-template-columns: 1fr 1fr; }
+#m-add .item svg { color: var(--accent); }
+#m-add .fixture svg { color: var(--warn); }
+#m-add .wide { grid-column: 1 / -1; color: var(--dim); font-size: 12px; padding: 4px 10px 2px; }
+
+select, input[type="number"] { font: 14px/1 var(--num); color: var(--text); background: var(--raised); border: 1px solid var(--line); border-radius: 8px; min-height: 40px; padding: 0 8px; width: 100%; min-width: 0; }
+select { font-family: var(--ui); }
+input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; flex: none; }
+
+#panel { right: calc(10px + var(--safe-r)); top: calc(60px + var(--safe-t)); width: 280px; max-height: calc(100% - 150px - var(--safe-t) - var(--safe-b)); overflow: auto; }
+.p-head { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; }
+.p-title { flex: 1; min-width: 0; }
+.p-title b { display: block; font-size: 15px; }
+.p-title span { display: block; font: 12.5px/1.35 var(--num); color: var(--dim); overflow-wrap: anywhere; }
+.p-body { padding: 0 14px 14px; display: grid; gap: 12px; }
+fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+legend { padding: 0 0 5px; color: var(--dim); font-size: 12px; letter-spacing: .04em; }
+.row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.row label { display: grid; gap: 3px; font: 11px/1 var(--num); color: var(--dim); min-width: 0; }
+.field { display: grid; gap: 5px; color: var(--dim); font-size: 12px; letter-spacing: .04em; }
+.facts { margin: -4px 0 0; font: 12px/1.45 var(--num); color: var(--dim); }
+.facts em { display: block; font-style: normal; color: var(--warn); margin-top: 3px; }
+.check { display: flex; align-items: center; gap: 10px; min-height: 40px; cursor: pointer; }
+.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+#result { left: calc(10px + var(--safe-l)); top: calc(60px + var(--safe-t)); width: 310px; max-height: calc(100% - 150px - var(--safe-t) - var(--safe-b)); overflow: auto; padding: 12px 14px 14px; display: grid; gap: 10px; }
+.verdict { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding-left: 10px; border-left: 4px solid var(--dim); }
+.verdict b { font-size: 20px; }
+.verdict span { font: 13px/1.2 var(--num); color: var(--dim); }
+.verdict.pass { border-color: var(--pass); } .verdict.pass b { color: var(--pass); }
+.verdict.warn { border-color: var(--warn); } .verdict.warn b { color: var(--warn); }
+.verdict.fail { border-color: var(--fail); } .verdict.fail b { color: var(--fail); }
+#result dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; font-size: 13px; }
+#result dt { color: var(--dim); }
+#result dd { margin: 0; font-family: var(--num); font-variant-numeric: tabular-nums; }
+#result dd small { color: var(--dim); font-size: 12px; }
+.ramp { display: grid; grid-template-columns: 1fr 1fr; font-size: 11px; color: var(--dim); gap: 3px 0; }
+.ramp i { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #2b40bf, #1fb8c9, #38c273, #f2d43d, #e6474d); }
+.ramp span:last-child { text-align: right; }
+.fine { margin: 0; font-size: 12px; line-height: 1.5; color: var(--dim); }
+.fine b { display: block; color: var(--warn); font-weight: 600; margin-top: 4px; }
+.split { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+#toasts { position: fixed; left: 50%; transform: translateX(-50%); top: calc(58px + var(--safe-t)); display: grid; gap: 6px; width: min(440px, calc(100% - 24px)); pointer-events: none; z-index: 9; }
+.toast { background: #12313a; border: 1px solid var(--accent); border-radius: 11px; padding: 10px 13px; font-size: 13.5px; line-height: 1.4; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
+
+#help { inset: 0; margin: auto; width: min(560px, calc(100% - 20px)); height: fit-content; max-height: calc(100% - 28px - var(--safe-t) - var(--safe-b)); overflow: auto; padding: 16px 18px 18px; z-index: 8; }
+#help h2 { margin: 0; font-size: 18px; }
+#help h3 { margin: 16px 0 5px; font: 600 11px/1 var(--num); color: var(--accent); text-transform: uppercase; letter-spacing: .14em; }
+#help p { margin: 0 0 6px; max-width: 62ch; color: #cdd8e0; }
+#help .split { justify-content: space-between; }
+#copybox { width: 100%; height: 150px; font: 12px/1.4 var(--num); color: var(--text); background: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
+#fatal { position: fixed; inset: 0; display: grid; place-content: center; padding: 24px; text-align: center; gap: 8px; background: var(--ink); z-index: 20; }
+
+@media (max-width: 819px) {
+  .brand span { display: none; }
+  #toasts { top: calc(6px + var(--safe-t)); }
+  #panel { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); top: auto; bottom: calc(72px + var(--safe-b)); width: auto; max-height: 46%; }
+  #panel.shut .p-body { display: none; }
+  #result { left: calc(8px + var(--safe-l)); right: calc(8px + var(--safe-r)); top: calc(54px + var(--safe-t)); width: auto; max-height: 38%; padding: 10px 12px 12px; gap: 8px; }
+  #result .fine { display: none; }
+  #result.open .fine { display: block; }
+}
+@media (min-width: 820px) { #p-toggle, #r-more { display: none; } }
+@media (prefers-reduced-motion: reduce) { .btn:active { transform: none; } }
 </style>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 </head>
 <body>
-<div id="rail">
-  <button class="b go" id="xr">Enter headset</button>
-  <button class="b" data-add="box">+ Box</button>
-  <button class="b" data-add="cyl">+ Cylinder</button>
-  <button class="b" data-add="sph">+ Sphere</button>
-  <button class="b" id="snap" aria-pressed="true">Snap on</button>
-  <button class="b" id="copy">Copy parts list</button>
-  <span id="sum">0 parts</span>
+<div id="stage"></div>
+
+<header id="top">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke-width="2.4"/><circle cx="12" cy="12" r="3.6" stroke-width="2"/></svg>
+    <b>whim</b><span>spatial bench</span>
+  </div>
+  <div class="chip" id="summary">Starting</div>
+  <span class="grow"></span>
+  <button class="btn hero" id="b-xr" hidden>Enter headset</button>
+</header>
+
+<aside class="card" id="panel" aria-label="Selected shape" hidden></aside>
+<section class="card" id="result" aria-label="Test result" aria-live="polite" hidden></section>
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<div class="card menu" id="m-add" role="menu" aria-label="Add" hidden>
+  <button class="item" role="menuitem" data-add="box"><svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5zM3 6.5 10 10l7-3.5M10 10v7"/></svg>Box</button>
+  <button class="item" role="menuitem" data-add="cyl"><svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><ellipse cx="10" cy="5.2" rx="6" ry="2.4"/><path d="M4 5.2v9.6c0 1.3 2.7 2.4 6 2.4s6-1.1 6-2.4V5.2"/></svg>Cylinder</button>
+  <button class="item" role="menuitem" data-add="sph"><svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><ellipse cx="10" cy="10" rx="7" ry="2.6"/></svg>Sphere</button>
+  <button class="item" role="menuitem" data-add="cone"><svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M4 14.6 10 2.6l6 12"/><ellipse cx="10" cy="14.6" rx="6" ry="2.4"/></svg>Cone</button>
+  <button class="item" role="menuitem" data-add="wedge"><svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 15.5v-9l10 9zM2.5 6.5l5-2.5 10 9-5 2.5"/></svg>Wedge</button>
+  <span class="wide">For testing</span>
+  <button class="item fixture" role="menuitem" data-add="clamp"><svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M15 6.5V4H5.5v12H15v-2.5M10 10h7"/></svg>Clamp<small>holds the part</small></button>
+  <button class="item fixture" role="menuitem" data-add="load"><svg viewBox="0 0 20 20" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 8h9l2 9h-13zM8 8V6.3a2 2 0 0 1 4 0V8"/></svg>Weight<small>pushes on it</small></button>
 </div>
-<div id="msg" role="status">Loading the bench…</div>
-<form id="panel" hidden>
-  <label>Width mm<input id="sx" type="number" min="1" step="1"></label>
-  <label>Height mm<input id="sy" type="number" min="1" step="1"></label>
-  <label>Depth mm<input id="sz" type="number" min="1" step="1"></label>
-  <label>Lift mm<input id="py" type="number" min="0" step="5"></label>
-  <label style="grid-column:1/3">Material<select id="mat"></select></label>
-  <label>Turn °<input id="ry" type="number" step="15"></label>
-  <label>Mass<input id="mass" readonly></label>
-  <div class="wide"><button class="b" type="button" id="dup">Duplicate</button><button class="b" type="button" id="del">Delete</button><button class="b" type="button" id="done">Done</button></div>
-</form>
-<script type="module">
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const $ = (id) => document.getElementById(id);
-const say = (t, ms = 0) => { $("msg").textContent = t; clearTimeout(say.t); if (ms) say.t = setTimeout(() => ($("msg").textContent = ""), ms); };
+<div class="card menu" id="m-more" role="menu" aria-label="More" hidden>
+  <label class="set" for="o-snap">Snap to 1 mm and 15&deg;<input type="checkbox" id="o-snap"></label>
+  <label class="set" for="o-scale">Scale<select id="o-scale" style="width:150px"></select></label>
+  <label class="set" for="o-env">Gravity<select id="o-env" style="width:150px"></select></label>
+  <label class="set" for="o-view" id="o-view-row" hidden>In the headset<select id="o-view" style="width:150px"><option value="room">See my room</option><option value="dark">Dark room</option></select></label>
+  <hr>
+  <button class="item" role="menuitem" id="a-3mf">Export 3MF<small>for printing, mm</small></button>
+  <button class="item" role="menuitem" id="a-stl">Export STL<small>for printing, mm</small></button>
+  <button class="item" role="menuitem" id="a-save">Save bench file<small>keeps it editable</small></button>
+  <button class="item" role="menuitem" id="a-open">Open bench file</button>
+  <button class="item" role="menuitem" id="a-record">Copy sealed record<small>sizes, materials, test</small></button>
+  <hr>
+  <button class="item" role="menuitem" id="a-fit">Fit everything in view</button>
+  <button class="item" role="menuitem" id="a-example">Load the example bracket</button>
+  <button class="item danger" role="menuitem" id="a-clear">Clear the bench</button>
+  <button class="item" role="menuitem" id="a-help">How it works</button>
+</div>
 
-// Densities in kg/m3: typical handbook values. Check your own stock before trusting a mass.
-const MATERIALS = [["Aluminum 6061", 2700, 0xb9c4cc], ["Steel", 7850, 0x7f8a94], ["PLA print", 1240, 0x6ea8ff], ["PETG print", 1270, 0x59c2a8],
-  ["ASA print", 1070, 0xffb454], ["Douglas-fir", 480, 0xc99a5b], ["Polyimide film", 1420, 0xd98a2b]];
-const BENCH_Y = 0.75, BENCH = { w: 1.2, d: 0.7, z: -0.6 };
-const DEFAULTS = { box: [0.1, 0.05, 0.05], cyl: [0.05, 0.1, 0.05], sph: [0.06, 0.06, 0.06] };
-const GEO = { box: new THREE.BoxGeometry(1, 1, 1), cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 40), sph: new THREE.SphereGeometry(0.5, 32, 20) };
+<nav id="tools" aria-label="Tools">
+  <button class="btn" id="b-add" aria-haspopup="menu" aria-expanded="false" aria-controls="m-add"><svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>Add</button>
+  <button class="btn icon" id="b-undo" aria-label="Undo" title="Undo"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 4.5l-4 4 4 4M3.5 8.5h8a4.5 4.5 0 0 1 0 9h-2"/></svg></button>
+  <button class="btn icon" id="b-redo" aria-label="Redo" title="Redo"><svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 4.5l4 4-4 4M16.5 8.5h-8a4.5 4.5 0 0 0 0 9h2"/></svg></button>
+  <button class="btn" id="b-lift" aria-pressed="false" title="When on, dragging a shape raises and lowers it">Lift</button>
+  <button class="btn hero" id="b-test">Test</button>
+  <button class="btn" id="b-more" aria-haspopup="menu" aria-expanded="false" aria-controls="m-more">More</button>
+</nav>
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
-renderer.xr.enabled = true;
-document.body.appendChild(renderer.domElement);
-const scene = new THREE.Scene();
-const BG = new THREE.Color(0x0f1418);
-scene.background = BG;
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.01, 30);
-camera.position.set(0.55, 1.35, 0.35);
-const orbit = new OrbitControls(camera, renderer.domElement);
-orbit.target.set(0, BENCH_Y + 0.05, BENCH.z); orbit.enableDamping = true; orbit.update();
-scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.6));
-const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(1, 3, 2); scene.add(sun);
+<div class="card" id="help" role="dialog" aria-modal="true" aria-labelledby="help-h" hidden>
+  <div class="split"><h2 id="help-h">How it works</h2><button class="btn sm" id="help-x">Close</button></div>
+  <h3>On a screen</h3>
+  <p>Tap a shape to pick it. Drag it to slide it along the bench. Turn on Lift, or hold Shift, and drag to raise it.</p>
+  <p>Drag a blue dot to stretch the shape from that side. The opposite side stays where it is.</p>
+  <p>Drag empty space to look around. Pinch or scroll to zoom. Two fingers or right-drag to pan.</p>
+  <h3>Building</h3>
+  <p>Push shapes together, pick one, and press Fuse touching. Everything in contact becomes one part.</p>
+  <p>Make a shape a hole, push it into a part, and fuse. The hole is cut out. Break apart gives the shapes back.</p>
+  <h3>Testing</h3>
+  <p>Put a Clamp where the part is held and a Weight where it is loaded. The arrow on the weight shows which way it pushes. Then press Test.</p>
+  <p>Colour shows stress and red is the peak. Safety factor is the material's strength divided by the peak stress. The part's own weight counts, at the gravity you chose.</p>
+  <p>The test is a quick straight-line elastic estimate on a grid of bricks, one uniform material, small bending. It leaves out buckling, fatigue, impact, weak print layers, and the extra stress at sharp inside corners. Material figures are typical handbook values. Use the datasheet for your own stock when it matters.</p>
+  <h3>In a headset</h3>
+  <p>Open this page in the Quest browser and press Enter headset. You see your room with the bench in front of you.</p>
+  <p>Point at a shape on the shelf along the back and pull the trigger, or pinch. It appears in your hand. Let go to put it down.</p>
+  <p>The trigger, or a pinch, carries a part and keeps it square. The grip button carries and turns it. While holding a part, press with the other hand and pull your hands apart to stretch it.</p>
+  <p>The buttons sit on the sloped panel along the front edge. Point and press, or push one with a fingertip. Let go of a part over the red bin to delete it. Grab the grey knob to move, turn or raise the bench.</p>
+  <h3>Files</h3>
+  <p>Export 3MF or STL for a slicer, in millimetres, bench top as the print bed. Save bench file keeps the editable version. Your work stays on this device.</p>
+  <div id="copyrow" hidden><h3>Copy this</h3><textarea id="copybox" readonly aria-label="Text to copy"></textarea></div>
+</div>
 
-// Bench: a 1.2 x 0.7 m top with a 100 mm grid, parts shelf on the left, bin on the right.
-const bench = new THREE.Group(); bench.position.set(0, BENCH_Y, BENCH.z); scene.add(bench);
-const top = new THREE.Mesh(new THREE.BoxGeometry(BENCH.w, 0.02, BENCH.d), new THREE.MeshStandardMaterial({ color: 0x1b242c, transparent: true, opacity: 0.82 }));
-top.position.y = -0.011; bench.add(top);
-const gp = [];                                   // 100 mm grid, heavier line every 500 mm
-for (let i = 0; i <= 12; i++) { const x = -BENCH.w / 2 + i * 0.1; gp.push(x, 0, -BENCH.d / 2, x, 0, BENCH.d / 2); }
-for (let j = 0; j <= 7; j++) { const z = -BENCH.d / 2 + j * 0.1; gp.push(-BENCH.w / 2, 0, z, BENCH.w / 2, 0, z); }
-const grid = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(gp, 3)), new THREE.LineBasicMaterial({ color: 0x4a6a8a }));
-bench.add(grid);
-const floor = new THREE.GridHelper(6, 12, 0x2a3540, 0x1c252d); scene.add(floor);
-const bin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), new THREE.MeshBasicMaterial({ color: 0xff6b6b, wireframe: true }));
-bin.position.set(BENCH.w / 2 + 0.14, 0.08, 0); bench.add(bin);
-const palette = [];
-["box", "cyl", "sph"].forEach((type, i) => {
-  const m = new THREE.Mesh(GEO[type], new THREE.MeshStandardMaterial({ color: 0x6ea8ff, emissive: 0x16304f }));
-  m.scale.set(0.07, 0.07, 0.07); m.position.set(-BENCH.w / 2 - 0.12, 0.05, -0.18 + i * 0.18); m.userData.palette = type; bench.add(m); palette.push(m);
-});
-
-function label() {
-  const c = document.createElement("canvas"); c.width = 512; c.height = 96;
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
-  s.scale.set(0.2, 0.0375, 1); s.renderOrder = 10; s.userData.canvas = c; scene.add(s); return s;
-}
-function write(s, text) {
-  if (s.userData.text === text) return; s.userData.text = text;
-  const c = s.userData.canvas, g = c.getContext("2d"); g.clearRect(0, 0, c.width, c.height);
-  g.fillStyle = "rgba(12,17,21,.85)"; g.beginPath(); g.roundRect(4, 14, c.width - 8, 68, 14); g.fill();
-  g.fillStyle = "#e9eef2"; g.font = "600 34px ui-monospace,Menlo,monospace"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, c.width / 2, 49, c.width - 28);
-  s.material.map.needsUpdate = true;
-}
-
-const parts = [];
-let selected = null, snapOn = true;
-const mm = (m) => Math.round(m * 1000);
-function volume(p) { const [x, y, z] = p.userData.size; return p.userData.type === "box" ? x * y * z : p.userData.type === "cyl" ? Math.PI * (x / 2) ** 2 * y : (4 / 3) * Math.PI * (x / 2) ** 3; }
-const massOf = (p) => volume(p) * MATERIALS[p.userData.mat][1];
-const fmtMass = (kg) => (kg < 1 ? `${(kg * 1000).toFixed(kg < 0.1 ? 1 : 0)} g` : `${kg.toFixed(2)} kg`);
-function applySize(p) {
-  const s = p.userData.size, t = p.userData.type;
-  if (t === "cyl") s[2] = s[0]; if (t === "sph") s[1] = s[2] = s[0];
-  p.userData.mesh.scale.set(s[0], s[1], s[2]);
-  write(p.userData.label, (t === "box" ? `${mm(s[0])} × ${mm(s[1])} × ${mm(s[2])}` : t === "cyl" ? `⌀${mm(s[0])} × ${mm(s[1])}` : `⌀${mm(s[0])}`) + ` mm · ${fmtMass(massOf(p))}`);
-}
-function addPart(type, pos, size, mat = 2, quat) {
-  const p = new THREE.Group();
-  const mesh = new THREE.Mesh(GEO[type], new THREE.MeshStandardMaterial({ color: MATERIALS[mat][2], roughness: 0.6, metalness: mat < 2 ? 0.6 : 0.05 }));
-  mesh.userData.part = p; p.add(mesh);
-  p.userData = { type, size: [...(size ?? DEFAULTS[type])], mat, mesh, label: label() };
-  p.position.copy(pos); if (quat) p.quaternion.copy(quat);
-  scene.add(p); parts.push(p); applySize(p); return p;
-}
-function removePart(p) { scene.remove(p); scene.remove(p.userData.label); parts.splice(parts.indexOf(p), 1); if (selected === p) select(null); }
-function setMat(p, i) { p.userData.mat = i; p.userData.mesh.material.color.setHex(MATERIALS[i][2]); p.userData.mesh.material.metalness = i < 2 ? 0.6 : 0.05; applySize(p); }
-const benchTop = new THREE.Vector3();
-function snap(p) {
-  if (!snapOn) return;
-  p.position.set(Math.round(p.position.x * 100) / 100, Math.round(p.position.y * 200) / 200, Math.round(p.position.z * 100) / 100);
-  const e = new THREE.Euler().setFromQuaternion(p.quaternion, "YXZ"), q = Math.PI / 2, r = (a) => Math.round(a / q) * q;
-  p.quaternion.setFromEuler(new THREE.Euler(r(e.x), Math.round(e.y / (Math.PI / 12)) * (Math.PI / 12), r(e.z), "YXZ"));
-  p.userData.size = p.userData.size.map((v) => Math.max(0.005, Math.round(v * 200) / 200)); applySize(p);
-}
-function summary() {
-  const total = parts.reduce((a, p) => a + massOf(p), 0);
-  const t = `${parts.length} part${parts.length === 1 ? "" : "s"}` + (parts.length ? ` · ${fmtMass(total)}` : "");
-  $("sum").textContent = t; return t;
-}
-const record = () => parts.map((p) => { const e = new THREE.Euler().setFromQuaternion(p.quaternion, "YXZ"), d = THREE.MathUtils.radToDeg;
-  return { type: p.userData.type, size_mm: p.userData.size.map(mm), position_mm: [mm(p.position.x), mm(p.position.y - BENCH_Y), mm(p.position.z - BENCH.z)],
-    rotation_deg: [d(e.x), d(e.y), d(e.z)].map(Math.round), material: MATERIALS[p.userData.mat][0], density_kg_m3: MATERIALS[p.userData.mat][1], mass_kg: +massOf(p).toFixed(4),
-    _q: p.quaternion.toArray(), _m: p.userData.mat, _p: p.position.toArray(), _s: p.userData.size }; });
-function save() { summary(); try { localStorage.setItem("whim.spatial", JSON.stringify(record())); } catch (e) {} }
-function load() { try { for (const r of JSON.parse(localStorage.getItem("whim.spatial") || "[]")) addPart(r.type, new THREE.Vector3().fromArray(r._p), r._s, r._m, new THREE.Quaternion().fromArray(r._q)); } catch (e) {} }
-
-// ---------- headset: trigger grabs, second trigger stretches, drop in the red bin to delete ----------
-const ray = new THREE.Raycaster(); ray.far = 3;
-const tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
-const controllers = [0, 1].map((i) => {
-  const c = renderer.xr.getController(i);
-  c.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]), new THREE.LineBasicMaterial({ color: 0x6ea8ff, transparent: true, opacity: 0.6 })));
-  c.add(new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0x6ea8ff })));
-  c.addEventListener("selectstart", onSelectStart); c.addEventListener("selectend", onSelectEnd); scene.add(c); return c;
-});
-let stretch = null;
-function pick(c) {
-  tmpM.identity().extractRotation(c.matrixWorld);
-  ray.ray.origin.setFromMatrixPosition(c.matrixWorld); ray.ray.direction.set(0, 0, -1).applyMatrix4(tmpM);
-  return ray.intersectObjects([...parts.map((p) => p.userData.mesh), ...palette], false)[0]?.object;
-}
-const handPos = (c) => new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
-function onSelectStart(e) {
-  const c = e.target, other = controllers.find((x) => x !== c), held = other.userData.held;
-  if (held) {                                   // second hand: stretch along the part axis closest to the line between hands
-    const v = handPos(c).sub(handPos(other)), d0 = v.length();
-    v.applyQuaternion(held.getWorldQuaternion(tmpQ).invert());
-    const a = [Math.abs(v.x), Math.abs(v.y), Math.abs(v.z)], axis = a.indexOf(Math.max(...a));
-    stretch = { part: held, a: other, b: c, d0: Math.max(d0, 0.01), axis, s0: held.userData.size[axis] }; return;
-  }
-  const hit = pick(c); if (!hit) return;
-  const part = hit.userData.palette ? addPart(hit.userData.palette, hit.getWorldPosition(new THREE.Vector3())) : hit.userData.part;
-  c.attach(part); c.userData.held = part;
-}
-function onSelectEnd(e) {
-  const c = e.target;
-  if (stretch && stretch.b === c) { snap(stretch.part); stretch = null; save(); return; }
-  const p = c.userData.held; if (!p) return;
-  if (stretch && stretch.a === c) stretch = null;
-  scene.attach(p); c.userData.held = null;
-  if (p.position.distanceTo(bin.getWorldPosition(tmpV)) < 0.14) removePart(p); else snap(p);
-  save();
-}
-async function enterXR() {
-  if (!navigator.xr) return say("This browser has no headset mode. Open this page in the Quest browser.", 6000);
-  try {
-    const ar = await navigator.xr.isSessionSupported("immersive-ar").catch(() => false);
-    const session = await navigator.xr.requestSession(ar ? "immersive-ar" : "immersive-vr", { optionalFeatures: ["local-floor", "bounded-floor"] });
-    renderer.xr.setReferenceSpaceType("local-floor");
-    scene.background = ar ? null : BG; floor.visible = !ar; select(null);
-    session.addEventListener("end", () => { scene.background = BG; floor.visible = true; });
-    await renderer.xr.setSession(session);
-  } catch (err) { say("Could not start headset mode: " + err.message, 8000); }
-}
-
-// ---------- screen: drag to slide a part on the bench, tap to edit its numbers ----------
-const mouse = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hitPt = new THREE.Vector3();
-let drag = null;
-function screenRay(ev) { const r = renderer.domElement.getBoundingClientRect(); mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1); ray.setFromCamera(mouse, camera); }
-renderer.domElement.addEventListener("pointerdown", (ev) => {
-  screenRay(ev); const hit = ray.intersectObjects(parts.map((p) => p.userData.mesh), false)[0];
-  if (!hit) return select(null);
-  const p = hit.object.userData.part; select(p);
-  plane.constant = -p.position.y; if (ray.ray.intersectPlane(plane, hitPt)) { drag = { p, off: p.position.clone().sub(hitPt) }; orbit.enabled = false; renderer.domElement.setPointerCapture(ev.pointerId); }
-});
-renderer.domElement.addEventListener("pointermove", (ev) => { if (!drag) return; screenRay(ev); if (ray.ray.intersectPlane(plane, hitPt)) drag.p.position.copy(hitPt).add(drag.off); });
-const endDrag = () => { if (!drag) return; snap(drag.p); drag = null; orbit.enabled = true; save(); };
-renderer.domElement.addEventListener("pointerup", endDrag); renderer.domElement.addEventListener("pointercancel", endDrag);
-
-function select(p) {
-  if (selected) selected.userData.mesh.material.emissive.setHex(0x000000);
-  selected = p; $("panel").hidden = !p; if (!p) return;
-  p.userData.mesh.material.emissive.setHex(0x1d3557); fill();
-}
-function fill() {
-  const p = selected, s = p.userData.size, t = p.userData.type;
-  $("sx").value = mm(s[0]); $("sy").value = mm(s[1]); $("sz").value = mm(s[2]);
-  $("sy").disabled = t === "sph"; $("sz").disabled = t !== "box";
-  $("py").value = mm(p.position.y - BENCH_Y - s[1] / 2); $("mat").value = p.userData.mat;
-  $("ry").value = Math.round(THREE.MathUtils.radToDeg(new THREE.Euler().setFromQuaternion(p.quaternion, "YXZ").y)); $("mass").value = fmtMass(massOf(p));
-}
-$("mat").innerHTML = MATERIALS.map((m, i) => `<option value="${i}">${m[0]}</option>`).join("");
-$("panel").addEventListener("input", () => {
-  const p = selected; if (!p) return; const n = (id, lo) => Math.max(lo, Number($(id).value) || lo) / 1000;
-  p.userData.size = [n("sx", 1), n("sy", 1), n("sz", 1)]; applySize(p);
-  p.position.y = BENCH_Y + p.userData.size[1] / 2 + Math.max(0, Number($("py").value) || 0) / 1000;
-  const e = new THREE.Euler().setFromQuaternion(p.quaternion, "YXZ"); e.y = THREE.MathUtils.degToRad(Number($("ry").value) || 0); p.quaternion.setFromEuler(e);
-  if (Number($("mat").value) !== p.userData.mat) setMat(p, Number($("mat").value));
-  $("mass").value = fmtMass(massOf(p)); save();
-});
-$("panel").addEventListener("submit", (e) => e.preventDefault());
-$("done").onclick = () => select(null);
-$("del").onclick = () => { if (selected) { removePart(selected); save(); } };
-$("dup").onclick = () => { const p = selected; if (!p) return; const c = addPart(p.userData.type, p.position.clone().add(new THREE.Vector3(p.userData.size[0] + 0.02, 0, 0)), p.userData.size, p.userData.mat, p.quaternion); select(c); save(); };
-document.querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => {
-  const t = b.dataset.add, s = DEFAULTS[t];
-  const p = addPart(t, new THREE.Vector3((parts.length % 5) * 0.12 - 0.24, BENCH_Y + s[1] / 2, BENCH.z + Math.floor(parts.length / 5) % 4 * 0.12 - 0.12)); select(p); save();
-}));
-$("snap").onclick = () => { snapOn = !snapOn; $("snap").setAttribute("aria-pressed", snapOn); $("snap").textContent = snapOn ? "Snap on" : "Snap off"; };
-$("copy").onclick = async () => {
-  const text = JSON.stringify(record().map(({ _q, _m, _p, _s, ...r }) => r), null, 1);
-  try { await navigator.clipboard.writeText(text); say("Parts list copied", 2000); } catch (e) { say("Copy was blocked by the browser", 3000); }
-};
-$("xr").onclick = enterXR;
-addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-
-const total = label(); total.scale.set(0.3, 0.056, 1);
-renderer.setAnimationLoop(() => {
-  if (stretch) {
-    const d = handPos(stretch.b).distanceTo(handPos(stretch.a));
-    stretch.part.userData.size[stretch.axis] = THREE.MathUtils.clamp(stretch.s0 * d / stretch.d0, 0.005, 3); applySize(stretch.part);
-  }
-  for (const p of parts) { p.getWorldPosition(tmpV); p.userData.label.position.set(tmpV.x, tmpV.y + Math.max(...p.userData.size) / 2 + 0.035, tmpV.z); }
-  total.position.set(0, BENCH_Y + 0.42, BENCH.z - BENCH.d / 2); write(total, summary());
-  if (!renderer.xr.isPresenting) orbit.update();
-  renderer.render(scene, camera);
-});
-load(); summary(); window.whim = { parts, record };
-say(navigator.xr ? "Add a shape, drag it on the bench, tap it to set exact sizes." : "Add a shape, drag it on the bench, tap it to set exact sizes. Headset mode needs the Quest browser.", 6000);
-</script>
+<input type="file" id="file" accept=".json,application/json" hidden>
+<noscript><div id="fatal"><b>Whim Spatial Bench needs JavaScript.</b></div></noscript>
+<script type="module" src="js/main.js"></script>
 </body>
 </html>
